@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Discrepancy Report - Herps of Greater China</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <style>
+    /* Additional styles for the report page */
+    .menu {
+      margin-bottom: 20px;
+      padding: 10px;
+      background-color: #ddd;
+      text-align: center;
+    }
+    .menu a {
+      margin-right: 15px;
+      text-decoration: none;
+      font-weight: bold;
+      color: #333;
+    }
+    .info-box {
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-bottom: 20px;
+      background-color: #f9f9f9;
+    }
+    .status {
+      margin-bottom: 20px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      background-color: #eef;
+    }
+    .report-container {
+      display: flex;
+      justify-content: space-between;
+    }
+    .report-section {
+      width: 48%;
+      height: 400px;
+      overflow-y: scroll;
+      border: 1px solid #ccc;
+      padding: 10px;
+      background-color: #fff;
+    }
+    /* Instructional note */
+    .instructions {
+      margin-bottom: 20px;
+      padding: 10px;
+      border: 1px dashed #888;
+      background-color: #fdfdfd;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <!-- Navigation Menu -->
+  <div class="menu">
+    <a href="{{ url_for('index') }}">Home (Map)</a>
+    <a href="{{ url_for('report_page') }}">Report</a>
+  </div>
+  
+  <div class="info-box">
+    <h2>Discrepancy Report Information</h2>
+    <p>
+      This report compares the species lists from text files (sourced from the reptile database)
+      against spatial data extracted from IUCN shapefiles. The spatial data for China/Taiwan is determined
+      using a de facto boundary derived from Natural Earth "Admin 0 – Countries" data, reflecting territorial
+      control rather than legal (de jure) boundaries.
+    </p>
+  </div>
+  
+  <div class="instructions">
+    <p>
+      The two scrollable boxes below display the species discrepancies from the two sources side by side.
+      They help you compare the two datasets. You can also edit the discrepancy report manually; however,
+      if you do, please update the species text files accordingly.
+    </p>
+  </div>
+  
+  <div class="status">
+    <button id="runReportBtn">Run Report (Warning: Only run if map data or species text files have changed)</button>
+    <div id="statusMessages"></div>
+  </div>
+  
+  <div class="report-container">
+    <div class="report-section" id="missingInText">
+      <h3>Species in spatial data (China/Taiwan) but missing from text files</h3>
+      <pre id="sectionMissingInText"></pre>
+    </div>
+    <div class="report-section" id="missingInSpatial">
+      <h3>Species in text files but not found in spatial data (China/Taiwan)</h3>
+      <pre id="sectionMissingInSpatial"></pre>
+    </div>
+  </div>
+  
+  <script>
+    // Function to load the report automatically on page load.
+    function loadReport() {
+      fetch("/get_report")
+      .then(response => response.json())
+      .then(data => {
+         if (data.error) {
+            alert("Error: " + data.error);
+            return;
+         }
+         var report = data.report;
+         // Split the report into two sections based on headings.
+         var split1 = report.split("Species in spatial data (China/Taiwan) but missing from text files:");
+         if (split1.length < 2) {
+            alert("Report format error.");
+            return;
+         }
+         var split2 = split1[1].split("Species in text files but not found in spatial data (China/Taiwan):");
+         var missingInText = split2[0].trim();
+         var missingInSpatial = split2.length > 1 ? split2[1].trim() : "";
+         document.getElementById("sectionMissingInText").innerText = missingInText;
+         document.getElementById("sectionMissingInSpatial").innerText = missingInSpatial;
+      })
+      .catch(err => alert("Error fetching report: " + err));
+    }
+    
+    // Auto-load the report when the page loads.
+    window.onload = loadReport;
+    
+    // Trigger report generation and stream status messages.
+    document.getElementById("runReportBtn").addEventListener("click", function() {
+      if (!confirm("Running the report may take up to 10 minutes. Do you want to proceed?")) {
+        return;
+      }
+      document.getElementById("statusMessages").innerText = "Starting report generation...";
+      var evtSource = new EventSource("/run_report");
+      evtSource.onmessage = function(event) {
+         var msg = event.data;
+         document.getElementById("statusMessages").innerText += "\n" + msg;
+         if (msg.includes("Report generation completed.")) {
+            evtSource.close();
+            loadReport();
+         }
+      };
+      evtSource.onerror = function(err) {
+         document.getElementById("statusMessages").innerText += "\nError occurred.";
+         evtSource.close();
+      };
+    });
+  </script>
+</body>
+</html>

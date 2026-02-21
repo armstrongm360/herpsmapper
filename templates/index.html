@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Herps of Greater China Climate &amp; Distribution Explorer</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <!-- Plotly -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  <style>
+    body { margin: 0; padding: 0; font-family: sans-serif; }
+    /* Navigation Menu Styles */
+    .menu {
+      padding: 10px;
+      background-color: #ddd;
+      text-align: center;
+    }
+    .menu a {
+      margin: 0 15px;
+      text-decoration: none;
+      font-weight: bold;
+      color: #333;
+    }
+    .page-container { width: 90%; margin: 0 auto; }
+
+    /* Step headings */
+    .step-heading {
+      font-size: 1.2em;
+      font-weight: bold;
+      margin: 10px 0 5px 0;
+    }
+
+    /* Gray bar (step 1 container) */
+    .step-1-container {
+      background-color: #eee;
+      padding: 10px;
+      margin-bottom: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 15px;
+    }
+
+    .step-1-container > div {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .step-1-container label {
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+
+    .species-search {
+      position: relative;
+    }
+    .species-search input[type="text"] {
+      width: 220px;
+      padding: 5px;
+    }
+    .suggestions {
+      border: 1px solid #ccc;
+      background: #fff;
+      max-height: 300px;
+      overflow-y: auto;
+      width: 220px;
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      z-index: 9999;
+    }
+    .suggestions div {
+      padding: 5px;
+      cursor: pointer;
+    }
+    .suggestions div:hover {
+      background-color: #eee;
+    }
+
+    /* Map & console region */
+    #middle-region { display: flex; margin-top: 10px; }
+    #map-container { flex: 2; padding-right: 10px; }
+    #station-console { flex: 1; padding-left: 10px; border-left: 1px solid #ccc; }
+    #map { width: 100%; height: 800px; border: 2px solid #333; }
+
+    /* Weather console & buttons */
+    #station-console {
+      background: #f9f9f9; 
+      padding: 10px;
+      position: relative;
+    }
+    #station-console h3 { margin-top: 0; }
+    #station-slots {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: repeat(5, auto);
+      grid-gap: 5px;
+    }
+    .station-slot {
+      min-height: 60px;
+      border: 1px solid #ccc;
+      padding: 5px;
+      background-color: #fff;
+    }
+
+    /* Graph region */
+    #bottom-region { padding: 10px 0; }
+    #graph-container { width: 80%; margin: 0 auto; padding: 0 10px; }
+
+    /* Spinner styling */
+    .spinner {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      background: rgba(255, 255, 255, 0.8);
+      padding: 20px;
+      border-radius: 8px;
+      z-index: 1000;
+    }
+    .loader {
+      border: 8px solid #f3f3f3;
+      border-top: 8px solid #3498db;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      animation: spin 2s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    /* Citation area styling */
+    #citation { margin-top: 10px; font-size: 0.9em; color: #444; }
+  </style>
+</head>
+<body>
+  <!-- Navigation Menu -->
+  <div class="menu">
+    <a href="{{ url_for('index') }}">Home (Map)</a>
+    <a href="{{ url_for('report_page') }}">Report</a>
+  </div>
+
+  <div class="page-container">
+    <!-- Title and short intro -->
+    <h2>Welcome to the Herps of Greater China Climate &amp; Distribution Explorer</h2>
+    <p>Explore climate data and species distribution for reptiles.</p>
+
+    <!-- Step 1: Combine species selection controls -->
+    <div class="step-heading">Step 1: Choose a Species</div>
+    <p>
+      Use the dropdown below for species in China/Taiwan (from the Reptile Database)
+      <strong>OR</strong> type a species name for a global search (from both Reptile Database &amp; IUCN).
+      Once you pick one method, the other will reset automatically.
+    </p>
+    <div class="step-1-container">
+      <!-- Herp Order + Species Dropdown -->
+      <div>
+        <label for="order-select">Select Herp Order (China/Taiwan)</label>
+        <select id="order-select">
+          {% for order in orders %}
+          <option value="{{ order }}">{{ order }}</option>
+          {% endfor %}
+        </select>
+        <label for="species-select">Species Dropdown</label>
+        <select id="species-select"></select>
+      </div>
+
+      <!-- OR type species name -->
+      <div class="species-search">
+        <label for="species-text">Or type species name (global):</label>
+        <input type="text" id="species-text" placeholder="Type species name...">
+        <div id="suggestions" class="suggestions"></div>
+      </div>
+
+      <!-- Distribution buttons -->
+      <div>
+        <button id="show-inat-btn">Show iNaturalist Distribution</button>
+        <button id="show-iucn-btn">Show IUCN Distribution</button>
+      </div>
+
+      <!-- Clear species button -->
+      <div>
+        <button id="clear-species-btn">Clear Species</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Instruct user to view distribution -->
+    <div class="step-heading">Step 2: View Distribution on the Map</div>
+    <p>
+      After choosing your species, click one of the distribution buttons above to see the data on the map.
+      You can only have one species active at a time. If you switch methods (dropdown vs. typing),
+      it will reset your current choice.
+    </p>
+
+    <!-- Step 3: Weather Stations -->
+    <div class="step-heading">Step 3: Select Weather Stations</div>
+    <p>
+      Click up to 10 weather stations on the map to add them to the console on the right.
+      <br><strong>When done, scroll down for Step 4.</strong>
+    </p>
+
+    <!-- Middle Region: Map and Station Console -->
+    <div id="middle-region">
+      <div id="map-container">
+        <div id="map"></div>
+        <div class="control-panel" style="text-align: center; margin-top: 10px;">
+          <!-- Step 4: Generate Graph -->
+          <button id="generate-graph-btn">Step 4: Generate Graph</button>
+          <div id="citation">
+            IUCN &lt;Red List version year&gt;. The IUCN Red List of Threatened Species. &lt;Red List version&gt;. https://www.iucnredlist.org.
+          </div>
+        </div>
+      </div>
+      <div id="station-console">
+        <h3>Weather Station Console (up to 10)</h3>
+        <!-- Clear All Stations button -->
+        <button id="clear-stations-btn">Clear All Stations</button>
+        <div id="station-slots">
+          <div id="station-slot-1" class="station-slot"></div>
+          <div id="station-slot-2" class="station-slot"></div>
+          <div id="station-slot-3" class="station-slot"></div>
+          <div id="station-slot-4" class="station-slot"></div>
+          <div id="station-slot-5" class="station-slot"></div>
+          <div id="station-slot-6" class="station-slot"></div>
+          <div id="station-slot-7" class="station-slot"></div>
+          <div id="station-slot-8" class="station-slot"></div>
+          <div id="station-slot-9" class="station-slot"></div>
+          <div id="station-slot-10" class="station-slot"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Region: Graph and Data Table -->
+    <div id="bottom-region">
+      <div id="graph-container"></div>
+      <div id="data-table"></div>
+      <div id="summary">
+        <p><strong>Graph Summary:</strong> Aggregated climate data and species observations.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Arrays to store all distribution layers
+    window.inatLayers = [];
+    window.iucnLayers = [];
+
+    // Define Tile Layers
+    var openTopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap (CC-BY-SA)'
+    });
+
+    // Create Map
+    var map = L.map('map', {
+      center: [35, 105],
+      zoom: 4,
+      layers: [openTopo]
+    });
+
+    // Load Herp Orders from backend
+    var herpOrders = {{ herp_orders_json | safe }};
+
+    // Populate species dropdown
+    function updateSpeciesDropdown() {
+      var orderSelect = document.getElementById("order-select");
+      var speciesSelect = document.getElementById("species-select");
+      var selectedOrder = orderSelect.value;
+      var speciesList = herpOrders[selectedOrder] || [];
+      speciesSelect.innerHTML = "";
+      speciesList.forEach(function(sp) {
+        var option = document.createElement("option");
+        option.value = sp;
+        option.textContent = sp;
+        speciesSelect.appendChild(option);
+      });
+    }
+    updateSpeciesDropdown();
+
+    // Reset typed species if user selects from dropdown
+    document.getElementById("order-select").addEventListener("change", function() {
+      document.getElementById("species-text").value = "";
+      document.getElementById("suggestions").style.display = "none";
+      updateSpeciesDropdown();
+      clearDistributionLayers();
+    });
+    document.getElementById("species-select").addEventListener("change", function() {
+      document.getElementById("species-text").value = "";
+      document.getElementById("suggestions").style.display = "none";
+      clearDistributionLayers();
+    });
+
+    // Reset dropdown if user types in text box
+    var speciesTextInput = document.getElementById("species-text");
+    speciesTextInput.addEventListener("input", function() {
+      if (speciesTextInput.value.trim().length > 0) {
+        document.getElementById("species-select").selectedIndex = -1;
+        clearDistributionLayers();
+      }
+    });
+
+    // Autocomplete suggestions for typed species
+    var suggestionsDiv = document.getElementById("suggestions");
+    speciesTextInput.addEventListener("keyup", function() {
+      var query = speciesTextInput.value.trim();
+      if (query.length < 4) {
+        suggestionsDiv.style.display = "none";
+        return;
+      }
+      fetch("/species_suggestions?query=" + encodeURIComponent(query))
+        .then(response => response.json())
+        .then(data => {
+          var suggestions = data.suggestions;
+          suggestionsDiv.innerHTML = "";
+          if (suggestions.length > 0) {
+            suggestions.forEach(function(item) {
+              var suggestionItem = document.createElement("div");
+              suggestionItem.innerHTML = `<em>${item.name}</em> (${item.sources})`;
+              suggestionItem.addEventListener("click", function() {
+                speciesTextInput.value = item.name;
+                suggestionsDiv.style.display = "none";
+              });
+              suggestionsDiv.appendChild(suggestionItem);
+            });
+            suggestionsDiv.style.display = "block";
+          } else {
+            suggestionsDiv.style.display = "none";
+          }
+        })
+        .catch(err => console.error("Error fetching suggestions:", err));
+    });
+
+    // Clear species button resets inputs and all distribution layers
+    document.getElementById("clear-species-btn").addEventListener("click", function() {
+      document.getElementById("order-select").selectedIndex = 0;
+      updateSpeciesDropdown();
+      document.getElementById("species-select").selectedIndex = -1;
+      speciesTextInput.value = "";
+      suggestionsDiv.style.display = "none";
+      clearDistributionLayers();
+    });
+
+    // Clear all distribution layers from map by iterating over both arrays.
+    function clearDistributionLayers() {
+      if (window.inatLayers && window.inatLayers.length > 0) {
+        window.inatLayers.forEach(function(layer) {
+          if (map.hasLayer(layer)) {
+            map.removeLayer(layer);
+            console.log("Removed an iNaturalist layer.");
+          }
+        });
+        window.inatLayers = [];
+      }
+      if (window.iucnLayers && window.iucnLayers.length > 0) {
+        window.iucnLayers.forEach(function(layer) {
+          if (map.hasLayer(layer)) {
+            map.removeLayer(layer);
+            console.log("Removed an IUCN layer.");
+          }
+        });
+        window.iucnLayers = [];
+      }
+    }
+
+    // Get species from either dropdown or text input
+    function getSelectedSpecies() {
+      var typedVal = speciesTextInput.value.trim();
+      if (typedVal) return typedVal;
+      var dropdownVal = document.getElementById("species-select").value;
+      if (dropdownVal) return dropdownVal.trim();
+      return "";
+    }
+
+    // Show iNaturalist Distribution using dark red markers.
+    document.getElementById("show-inat-btn").addEventListener("click", function() {
+      var species = getSelectedSpecies();
+      if (!species) {
+        alert("Please select or type a species first.");
+        return;
+      }
+      // Do not clear other distribution layers so both can be shown.
+      fetchInatDistribution(species);
+    });
+
+    // Show IUCN Distribution using SQLite index; styled red with 40% opacity.
+    document.getElementById("show-iucn-btn").addEventListener("click", function() {
+      var species = getSelectedSpecies();
+      if (!species) {
+        alert("Please select or type a species first.");
+        return;
+      }
+      // Do not clear other distribution layers so both can be shown.
+      fetchIUCNDistribution(species);
+    });
+
+    // iNaturalist distribution function: add layer and store in inatLayers array.
+    function fetchInatDistribution(species) {
+      var distributionLayer = L.layerGroup();
+      window.inatLayers.push(distributionLayer);
+      distributionLayer.addTo(map);
+
+      var spinnerDiv = createSpinner("Fetching iNaturalist data... 0");
+      document.getElementById("map").appendChild(spinnerDiv);
+
+      var eventSource = new EventSource("/fetch_inat_data?species=" + encodeURIComponent(species));
+      eventSource.onmessage = function(event) {
+        if (!event.data || event.data.trim() === "") return;
+        if (event.data.startsWith("ERROR:")) {
+          console.error("Error: " + event.data);
+          eventSource.close();
+          spinnerDiv.innerHTML = "<p>Error fetching data.</p>";
+          return;
+        }
+        if (event.data.startsWith("FINISHED|") || event.data.startsWith("CACHED|")) {
+          var prefix = event.data.startsWith("FINISHED|") ? "FINISHED|" : "CACHED|";
+          var jsonStr = event.data.substring(prefix.length);
+          var data = JSON.parse(jsonStr);
+          var results = data.results;
+          results.forEach(function(obs) {
+            var lat = obs.latitude;
+            var lon = obs.longitude;
+            if (!lat || !lon) {
+              if (obs.geojson && obs.geojson.coordinates) {
+                lon = obs.geojson.coordinates[0];
+                lat = obs.geojson.coordinates[1];
+              }
+            }
+            if (lat && lon) {
+              var circle = L.circleMarker([lat, lon], {
+                radius: 5,
+                color: "darkred",
+                fillColor: "darkred",
+                fillOpacity: 0.9
+              });
+              distributionLayer.addLayer(circle);
+            }
+          });
+          if (distributionLayer.getLayers().length > 0) {
+            map.fitBounds(distributionLayer.getBounds());
+          }
+          eventSource.close();
+          spinnerDiv.remove();
+        } else {
+          spinnerDiv.querySelector("#spinner-text").textContent = "Fetching iNaturalist data... " + event.data;
+        }
+      };
+      eventSource.onerror = function(err) {
+        console.error("iNaturalist EventSource error:", err);
+        eventSource.close();
+        spinnerDiv.remove();
+      };
+    }
+
+    // IUCN distribution function: add layer, style red with 40% opacity, store in iucnLayers array.
+    function fetchIUCNDistribution(species) {
+      var distributionLayer = L.geoJSON(null, { 
+        style: function(feature) {
+          return { color: "red", fillColor: "red", fillOpacity: 0.4, weight: 2 };
+        }
+      });
+      window.iucnLayers.push(distributionLayer);
+      distributionLayer.addTo(map);
+
+      var spinnerDiv = createSpinner("Fetching IUCN polygon data...");
+      document.getElementById("map").appendChild(spinnerDiv);
+
+      // Use the SQLite endpoint for faster lookup using the species index.
+      fetch("/get_iucn_polygon_sqlite?species=" + encodeURIComponent(species))
+        .then(res => {
+          if (!res.ok) {
+            throw new Error("Error fetching IUCN data: " + res.status);
+          }
+          return res.json();
+        })
+        .then(geojsonData => {
+          distributionLayer.addData(geojsonData);
+          if (distributionLayer.getLayers().length > 0) {
+            map.fitBounds(distributionLayer.getBounds());
+          }
+          spinnerDiv.remove();
+        })
+        .catch(err => {
+          console.error(err);
+          spinnerDiv.innerHTML = "<p>Error fetching IUCN polygon data.</p>";
+        });
+    }
+
+    // Helper function to create a spinner element.
+    function createSpinner(text) {
+      var spinnerDiv = document.createElement("div");
+      spinnerDiv.className = "spinner";
+      spinnerDiv.innerHTML = `
+        <div class="loader"></div>
+        <p id="spinner-text">${text}</p>
+      `;
+      return spinnerDiv;
+    }
+
+    // Weather Stations
+    let stationLayer = L.layerGroup().addTo(map);
+    let stationsById = {};
+    let stationSlots = new Array(10).fill(null);
+    let stationSlotIndex = {};
+    let selectedStations = [];
+
+    function loadStations() {
+      var bounds = map.getBounds();
+      var north = bounds.getNorth();
+      var west = bounds.getWest();
+      var south = bounds.getSouth();
+      var east = bounds.getEast();
+      var url = `/stations?north=${north}&west=${west}&south=${south}&east=${east}`;
+      fetch(url)
+        .then(response => response.json())
+        .then(data => {
+          stationLayer.clearLayers();
+          stationsById = {};
+          data.forEach(function(st) {
+            stationsById[st.id] = st;
+          });
+          data.forEach(function(station) {
+            var sid = station.id;
+            var lat = station.coords[0];
+            var lon = station.coords[1];
+            var marker = L.circleMarker([lat, lon], {
+              radius: 5,
+              color: "#3388ff",
+              fillColor: "#3388ff",
+              fillOpacity: 0.8
+            });
+            marker.on('click', function() {
+              if (!stationSlotIndex.hasOwnProperty(sid)) {
+                let freeIndex = stationSlots.findIndex(s => s === null);
+                if (freeIndex === -1) {
+                  alert("No more station slots available (max 10).");
+                  return;
+                }
+                stationSlots[freeIndex] = {
+                  id: sid,
+                  name: station.name,
+                  coords: station.coords,
+                  elevation: station.elevation,
+                  monthly_start: station.monthly_start,
+                  monthly_end: station.monthly_end
+                };
+                stationSlotIndex[sid] = freeIndex;
+                selectedStations.push(sid);
+                marker.setStyle({ color: "green", fillColor: "green" });
+              } else {
+                let slotIdx = stationSlotIndex[sid];
+                stationSlots[slotIdx] = null;
+                delete stationSlotIndex[sid];
+                let i = selectedStations.indexOf(sid);
+                if (i !== -1) selectedStations.splice(i, 1);
+                marker.setStyle({ color: "#3388ff", fillColor: "#3388ff" });
+              }
+              updateStationConsole();
+            });
+            stationLayer.addLayer(marker);
+          });
+        })
+        .catch(error => console.error("Error loading stations:", error));
+    }
+    loadStations();
+    map.on('moveend', loadStations);
+
+    function updateStationConsole() {
+      for (let i = 0; i < 10; i++) {
+        const slotDiv = document.getElementById("station-slot-" + (i + 1));
+        const slotObj = stationSlots[i];
+        if (slotObj === null) {
+          slotDiv.innerHTML = "";
+        } else {
+          const lat = slotObj.coords[0].toFixed(4);
+          const lon = slotObj.coords[1].toFixed(4);
+          let dateRange = "N/A";
+          if (slotObj.monthly_start && slotObj.monthly_end) {
+            dateRange = `${slotObj.monthly_start} to ${slotObj.monthly_end}`;
+          }
+          slotDiv.innerHTML = `
+            <strong>Station Name:</strong> ${slotObj.name}<br/>
+            <strong>Elevation:</strong> ${slotObj.elevation !== null ? slotObj.elevation : "N/A"}<br/>
+            <strong>Coordinates:</strong> ${lat}, ${lon}<br/>
+            <strong>Date Range:</strong> ${dateRange}
+            <div class="station-chart" id="station-chart-${i+1}"></div>
+          `;
+          let chartDiv = document.getElementById("station-chart-" + (i+1));
+          if (chartDiv && chartDiv.innerHTML.trim() === "") {
+            fetch("/get_station_climate?station_id=" + encodeURIComponent(slotObj.id))
+              .then(res => res.json())
+              .then(data => {
+                if (data.error) {
+                  chartDiv.innerHTML = "<small>No climate data available.</small>";
+                  return;
+                }
+                let trace1 = {
+                  x: data.map(d => d.month),
+                  y: data.map(d => d.tavg),
+                  type: "scatter",
+                  mode: "lines+markers",
+                  line: { color: "red" },
+                  marker: { size: 3 }
+                };
+                let trace2 = {
+                  x: data.map(d => d.month),
+                  y: data.map(d => d.prcp),
+                  type: "scatter",
+                  mode: "lines+markers",
+                  line: { color: "blue" },
+                  marker: { size: 3 }
+                };
+                let layout = {
+                  margin: { t: 2, b: 2, l: 2, r: 2 },
+                  xaxis: { visible: false },
+                  yaxis: { visible: false }
+                };
+                Plotly.newPlot(chartDiv, [trace1, trace2], layout, {displayModeBar: false});
+              })
+              .catch(err => console.error("Error fetching station climate data:", err));
+          }
+        }
+      }
+    }
+
+    // Clear All Stations button
+    document.getElementById("clear-stations-btn").addEventListener("click", function() {
+      stationSlots = new Array(10).fill(null);
+      stationSlotIndex = {};
+      selectedStations = [];
+      updateStationConsole();
+      stationLayer.eachLayer(function(marker) {
+        marker.setStyle({ color: "#3388ff", fillColor: "#3388ff" });
+      });
+    });
+
+    // Generate Graph (Step 4)
+    document.getElementById("generate-graph-btn").addEventListener("click", function() {
+      var species = getSelectedSpecies();
+      if (!species) {
+        alert("Please select or type a species before generating a graph.");
+        return;
+      }
+      if (selectedStations.length === 0) {
+        alert("Please select at least one weather station.");
+        return;
+      }
+      var payload = { species: species, selectedStations: selectedStations };
+      document.getElementById("graph-container").innerHTML = `
+        <div class="spinner">
+          <div class="loader"></div>
+          <p>Hold on tight, we are working our magic. This could take 10–90 seconds...</p>
+        </div>
+      `;
+      document.getElementById("data-table").innerHTML = "";
+      fetch("/generate_graph", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      .then(response => {
+        if (!response.ok) throw new Error("Network response was not ok.");
+        return response.json();
+      })
+      .then(data => {
+        if (data.error) {
+          document.getElementById("graph-container").innerHTML = `<p>${data.error}</p>`;
+          return;
+        }
+        var maxPrecip = Math.max(...data.precipitation);
+        var precipMaxRange = Math.ceil(maxPrecip / 50) * 50;
+        if (precipMaxRange < 200) precipMaxRange = 200;
+        var maxObs = Math.max(...data.observations);
+        if (maxObs < 1) maxObs = 1;
+        var obsScaled = data.observations.map(obs => (obs / maxObs) * 100);
+        document.getElementById("graph-container").innerHTML = "";
+        var obsTrace = {
+          x: data.months,
+          y: obsScaled,
+          type: "bar",
+          name: "Observations",
+          marker: { color: "gray" },
+          yaxis: "y3",
+          hovertemplate: "Observations: %{customdata}<extra></extra>",
+          customdata: data.observations,
+          layer: "below", opacity: 0.4
+        };
+        var tempTrace = {
+          x: data.months,
+          y: data.temperature,
+          mode: "lines+markers",
+          name: "Temperature (°C)",
+          line: { color: "red" },
+          yaxis: "y"
+        };
+        var precipTrace = {
+          x: data.months,
+          y: data.precipitation,
+          mode: "lines+markers",
+          name: "Precipitation (mm)",
+          line: { color: "blue" },
+          yaxis: "y2"
+        };
+        var traces = [obsTrace, tempTrace, precipTrace];
+        var layout = {
+          title: {
+            text: "Climate & Observations (n=" + data.total_obs + ") for <i>" + species + "</i>",
+            pad: { t: 20 }
+          },
+          width: 1000,
+          height: 600,
+          margin: { l: 50, r: 50, t: 100, b: 50 },
+          paper_bgcolor: "white",
+          plot_bgcolor: "white",
+          xaxis: { title: "", showgrid: false, zeroline: false },
+          yaxis: {
+            title: "Temperature (°C)",
+            range: [0, 30],
+            tickfont: { color: "red" },
+            titlefont: { color: "red" },
+            showgrid: false,
+            zeroline: false
+          },
+          yaxis2: {
+            title: "Precipitation (mm)",
+            range: [0, precipMaxRange],
+            overlaying: "y",
+            side: "right",
+            tickfont: { color: "blue" },
+            titlefont: { color: "blue" },
+            showgrid: false,
+            zeroline: false
+          },
+          yaxis3: {
+            range: [0, 100],
+            overlaying: "y",
+            visible: false,
+            showgrid: false,
+            zeroline: false
+          },
+          legend: { orientation: "h", x: 0.3, y: 1.1, xanchor: 'center', yanchor: 'top' }
+        };
+        Plotly.newPlot("graph-container", traces, layout);
+        var table = document.createElement("table");
+        table.style.borderCollapse = "collapse";
+        table.style.width = "80%";
+        table.style.margin = "20px auto";
+        table.style.fontSize = "0.9em";
+        var headerRow = table.insertRow();
+        ["Month", "Avg Temperature (°C)", "Avg Precipitation (mm)", "Observations"].forEach(function(text) {
+          var th = document.createElement("th");
+          th.innerText = text;
+          th.style.border = "1px solid #ccc";
+          th.style.padding = "5px";
+          th.style.backgroundColor = "#f2f2f2";
+          headerRow.appendChild(th);
+        });
+        for (var i = 0; i < data.months.length; i++) {
+          var row = table.insertRow();
+          var cellMonth = row.insertCell();
+          cellMonth.innerText = data.months[i];
+          cellMonth.style.border = "1px solid #ccc";
+          cellMonth.style.padding = "5px";
+          var cellTemp = row.insertCell();
+          cellTemp.innerText = data.temperature[i] !== null ? parseFloat(data.temperature[i]).toFixed(2) : "N/A";
+          cellTemp.style.border = "1px solid #ccc";
+          cellTemp.style.padding = "5px";
+          var cellPrecip = row.insertCell();
+          cellPrecip.innerText = data.precipitation[i] !== null ? parseFloat(data.precipitation[i]).toFixed(2) : "N/A";
+          cellPrecip.style.border = "1px solid #ccc";
+          cellPrecip.style.padding = "5px";
+          var cellObs = row.insertCell();
+          cellObs.innerText = data.observations[i];
+          cellObs.style.border = "1px solid #ccc";
+          cellObs.style.padding = "5px";
+        }
+        document.getElementById("data-table").appendChild(table);
+      })
+      .catch(error => {
+        console.error("Error generating graph:", error);
+        document.getElementById("graph-container").innerHTML = "<p>Error generating graph.</p>";
+      });
+    });
+  </script>
+</body>
+</html>
