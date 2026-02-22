@@ -1,105 +1,124 @@
-import json
-import requests
 import streamlit as st
-import pydeck as pdk
+import pandas as pd
+import requests
+import folium
+from streamlit_folium import st_folium
 
-# Your Cloudflare R2 Public Development URL (bucket public URL)
-R2_PUBLIC = "https://pub-24f3dc7f88d741309e78eb1352612cfd.r2.dev"
-
-# We don't know if your geojson files are in a subfolder or bucket root,
-# so we try both.
-CANDIDATE_PREFIXES = [
-    f"{R2_PUBLIC}/polygon_export/",  # most likely
-    f"{R2_PUBLIC}/",                 # bucket root
-]
+# Your public R2 base (must end with a slash)
+R2_BASE = "https://pub-24f3dc7f88d741309e78eb1352612cfd.r2.dev/polygon_export/"
 
 st.set_page_config(page_title="HerpsMapper", layout="wide")
 st.title("HerpsMapper")
-st.caption("Type a species (e.g., 'Gloydius brevicaudus') to load and render its polygon.")
 
-species = st.text_input("Species name", placeholder="Genus species")
-
-@st.cache_data(show_spinner=False, ttl=60 * 60)
-def fetch_geojson(species_name: str) -> tuple[dict | None, str | None]:
+@st.cache_data(show_spinner=False)
+def load_species_list():
     """
-    Returns: (geojson_dict, url_used) or (None, None)
+    Tries to load species list from all_reptiles_world.csv (recommended).
+    Falls back to an empty list if file isn't in the repo.
     """
-    filename = species_name.strip().lower().replace(" ", "_") + ".geojson"
+    try:
+        df = pd.read_csv("all_reptiles_world.csv")
+        # Expect a column named 'species' (your Flask code uses that name)
+        if "species" in df.columns:
+            species = (
+                df["species"]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .str.replace(r"\s+", " ", regex=True)
+                .unique()
+                .tolist()
+            )
+            # Nice display: Genus capitalized
+            cleaned = []
+            for s in species:
+                parts = s.split()
+                if parts:
+                    parts[0] = parts[0].capitalize()
+                cleaned.append(" ".join(parts))
+            return sorted(set(cleaned))
+    except Exception:
+        pass
+    return []
 
-    headers = {
-        "Accept": "application/json, text/plain, */*",
+def species_to_filename(species_name: str) -> str:
+    # Your existing convention: lower + underscores + .geojson
+    return species_name.strip().lower().replace(" ", "_") + ".geojson"
+
+def fetch_polygon_geojson(species_name: str):
+    url = R2_BASE + species_to_filename(species_name)
+    r = requests.get(url, timeout=30)
+    if r.status_code == 200:
+        return r.json(), url
+    return None, url
+
+def fetch_inat_points(species_name: str, limit=500):
+    """
+    Lightweight iNaturalist fetch: grabs up to 'limit' points.
+    (Your Flask version streams + paginates; we keep this simple for Streamlit.)
+    """
+    api = "https://api.inaturalist.org/v1/observations"
+    params = {
+        "taxon_name": species_name,
+        "per_page": min(limit, 200),
+        "page": 1,
+        "verifiable": "true",
     }
+    r = requests.get(api, params=params, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    pts = []
+    for obs in data.get("results", []):
+        geo = obs.get("geojson")
+        if geo and geo.get("type") == "Point":
+            lon, lat = geo.get("coordinates", [None, None])
+            if lat is not None and lon is not None:
+                pts.append((lat, lon))
+    return pts, data.get("total_results", 0)
 
-    for prefix in CANDIDATE_PREFIXES:
-        url = prefix + filename
+species_list = load_species_list()
+
+left, right = st.columns([1, 2])
+
+with left:
+    st.subheader("Controls")
+
+    if species_list:
+        species = st.selectbox(
+            "Choose a species (type to search):",
+            options=species_list,
+            index=0,
+        )
+    else:
+        species = st.text_input("Species name (e.g., Gloydius brevicaudus):")
+
+    load_poly = st.button("Load polygon (R2)", type="primary")
+    load_inat = st.button("Load iNaturalist points (quick)")
+
+    st.caption("Polygons are required (loaded from Cloudflare R2).")
+
+with right:
+    st.subheader("Map")
+
+    # Start map at a reasonable global view
+    m = folium.Map(location=[20, 0], zoom_start=2, tiles="CartoDB positron")
+
+    if species and load_poly:
+        geojson, url = fetch_polygon_geojson(species)
+        if geojson:
+            folium.GeoJson(geojson, name="IUCN polygon").add_to(m)
+            folium.LayerControl().add_to(m)
+            st.success(f"Polygon loaded from: {url}")
+        else:
+            st.error(f"Polygon not found at: {url}")
+
+    if species and load_inat:
         try:
-            r = requests.get(url, headers=headers, timeout=30)
-            if r.status_code == 200:
-                return r.json(), url
-        except requests.RequestException:
-            continue
+            pts, total = fetch_inat_points(species, limit=500)
+            for lat, lon in pts:
+                folium.CircleMarker(location=[lat, lon], radius=2).add_to(m)
+            st.info(f"Loaded {len(pts)} points (of ~{total} total iNat observations).")
+        except Exception as e:
+            st.error(f"iNaturalist fetch failed: {e}")
 
-    return None, None
-
-def bounds_center(geojson_obj: dict) -> tuple[float, float]:
-    """
-    Lightweight center estimate from GeoJSON coordinates (no shapely).
-    Works for Polygon and MultiPolygon.
-    """
-    coords = []
-
-    for feat in geojson_obj.get("features", []):
-        geom = feat.get("geometry") or {}
-        gtype = geom.get("type")
-        gcoords = geom.get("coordinates") or []
-
-        # Polygon: [ [ [lon,lat], ... ] , hole2...]
-        # MultiPolygon: [ polygon1, polygon2, ... ]
-        if gtype == "Polygon":
-            rings = gcoords
-            for ring in rings:
-                coords.extend(ring)
-        elif gtype == "MultiPolygon":
-            for poly in gcoords:
-                for ring in poly:
-                    coords.extend(ring)
-
-    if not coords:
-        # fallback to China/Taiwan-ish center
-        return 35.0, 105.0
-
-    lons = [pt[0] for pt in coords if isinstance(pt, (list, tuple)) and len(pt) >= 2]
-    lats = [pt[1] for pt in coords if isinstance(pt, (list, tuple)) and len(pt) >= 2]
-    return (sum(lats) / len(lats), sum(lons) / len(lons))
-
-if species and species.strip():
-    with st.spinner("Loading polygon..."):
-        geojson_obj, used_url = fetch_geojson(species)
-
-    if geojson_obj is None:
-        st.error("Polygon not found. Try a different species spelling.")
-        st.write("This app expects files named like `genus_species.geojson` in your R2 bucket.")
-        st.stop()
-
-    st.success(f"Loaded polygon from: {used_url}")
-
-    lat, lon = bounds_center(geojson_obj)
-
-    layer = pdk.Layer(
-        "GeoJsonLayer",
-        data=geojson_obj,
-        pickable=True,
-        stroked=True,
-        filled=True,
-        extruded=False,
-        line_width_min_pixels=1,
-    )
-
-    view_state = pdk.ViewState(latitude=lat, longitude=lon, zoom=4)
-
-    st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=view_state, tooltip={"text": "{shapefile}"}))
-
-    with st.expander("Show raw GeoJSON"):
-        st.json(geojson_obj)
-else:
-    st.info("Enter a species name above to render its polygon.")
+    st_folium(m, height=650, use_container_width=True)
