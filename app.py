@@ -1,7 +1,7 @@
 import sys, os
 
 # When bundled by PyInstaller, sys.frozen is True and _MEIPASS is the temp folder
-if getattr(sys, 'frozen', False):
+if getattr(sys, "frozen", False):
     base_dir = sys._MEIPASS
 else:
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -28,6 +28,7 @@ app.register_blueprint(sqlite_iucn_bp)
 # Load herp orders from species_files.
 herp_orders = data_loader.load_herp_orders()
 
+
 @app.route("/")
 def index():
     # For the initial page load, load stations covering China/Taiwan.
@@ -37,8 +38,9 @@ def index():
         "index.html",
         orders=orders,
         herp_orders_json=json.dumps(herp_orders),
-        station_list_json=json.dumps(station_list)
+        station_list_json=json.dumps(station_list),
     )
+
 
 @app.route("/stations")
 def stations():
@@ -52,6 +54,7 @@ def stations():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
+
 @app.route("/generate_graph", methods=["POST"])
 def generate_graph():
     try:
@@ -59,15 +62,24 @@ def generate_graph():
         species = data.get("species")
         selected_station_ids = data.get("selectedStations", [])
         if not selected_station_ids:
-            return jsonify({"error": "Please select at least one weather station to generate the graph."}), 400
+            return (
+                jsonify(
+                    {
+                        "error": "Please select at least one weather station to generate the graph."
+                    }
+                ),
+                400,
+            )
 
         stations = data_loader.load_weather_stations()
-        station_map = {s['id']: s['coords'] for s in stations}
+        station_map = {s["id"]: s["coords"] for s in stations}
 
         start_date = "2015-01-01"
         end_date = "2025-04-01"
 
-        combined_df = weather.combine_station_weather(selected_station_ids, station_map, start_date, end_date)
+        combined_df = weather.combine_station_weather(
+            selected_station_ids, station_map, start_date, end_date
+        )
         if combined_df is None:
             return jsonify({"error": "Failed to retrieve weather data."}), 500
 
@@ -78,7 +90,20 @@ def generate_graph():
         final_df = final_df.sort_index()
         grouped = final_df.groupby(final_df.index).mean()
 
-        month_labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        month_labels = [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "May",
+            "Jun",
+            "Jul",
+            "Aug",
+            "Sep",
+            "Oct",
+            "Nov",
+            "Dec",
+        ]
         temperature_list = []
         precipitation_list = []
         observations_list = []
@@ -97,12 +122,13 @@ def generate_graph():
             "temperature": temperature_list,
             "precipitation": precipitation_list,
             "observations": observations_list,
-            "total_obs": total_obs
+            "total_obs": total_obs,
         }
         return jsonify(response_data)
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/fetch_inat_data")
 def fetch_inat_data():
@@ -113,7 +139,9 @@ def fetch_inat_data():
     def generate():
         for msg in inat.stream_inat_data(species, force=False):
             yield f"data: {msg}\n\n"
+
     return Response(generate(), mimetype="text/event-stream")
+
 
 @app.route("/get_station_climate")
 def get_station_climate():
@@ -144,24 +172,32 @@ def get_station_climate():
 
     # If we still don't have a "month" column, return an error.
     if "month" not in df.columns:
-        return jsonify({"error": "Climate data format error: 'month' column missing"}), 500
+        return (
+            jsonify({"error": "Climate data format error: 'month' column missing"}),
+            500,
+        )
 
     data = df[["month", "tavg", "prcp"]].to_dict(orient="records")
     return jsonify(data)
+
 
 @app.route("/report")
 def report_page():
     # Render the new report page template.
     return render_template("report.html")
 
+
 @app.route("/run_report")
 def run_report():
     # Import the report generator module and stream progress updates.
     import reptile_report_generator as rrg
+
     def generate():
         for msg in rrg.generate_report_stream():
             yield f"data: {msg}\n\n"
+
     return Response(generate(), mimetype="text/event-stream")
+
 
 @app.route("/get_report")
 def get_report():
@@ -171,6 +207,7 @@ def get_report():
         return jsonify({"report": report})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/species_suggestions")
 def species_suggestions():
@@ -196,7 +233,9 @@ def species_suggestions():
         for filename in os.listdir(species_folder):
             if filename.lower().endswith(".txt"):
                 try:
-                    with open(os.path.join(species_folder, filename), "r", encoding="utf-8") as f:
+                    with open(
+                        os.path.join(species_folder, filename), "r", encoding="utf-8"
+                    ) as f:
                         for line in f:
                             sp = line.strip().lower()
                             if sp:
@@ -225,6 +264,7 @@ def species_suggestions():
             suggestions.append({"name": formatted_name, "sources": source_str})
     suggestions = sorted(suggestions, key=lambda x: x["name"])
     return jsonify({"suggestions": suggestions})
+
 
 if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

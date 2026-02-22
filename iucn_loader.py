@@ -8,6 +8,7 @@ iucn_bp = Blueprint("iucn", __name__)
 # Define the folder where the shapefiles reside.
 IUCN_FOLDER = os.path.join("IUCN_files", "reptilia_polygon")
 
+
 @iucn_bp.route("/get_iucn_polygon")
 def get_iucn_polygon():
     species = request.args.get("species")
@@ -16,7 +17,11 @@ def get_iucn_polygon():
 
     species_clean = species.strip().lower()
     # List all shapefiles in the IUCN folder.
-    shp_files = [os.path.join(IUCN_FOLDER, f) for f in os.listdir(IUCN_FOLDER) if f.lower().endswith(".shp")]
+    shp_files = [
+        os.path.join(IUCN_FOLDER, f)
+        for f in os.listdir(IUCN_FOLDER)
+        if f.lower().endswith(".shp")
+    ]
     if not shp_files:
         return jsonify({"error": "No shapefiles found in the IUCN folder"}), 500
 
@@ -34,7 +39,10 @@ def get_iucn_polygon():
             continue
 
     if matching_features is None or matching_features.empty:
-        return jsonify({"error": f"No IUCN polygon data found for species: {species}"}), 404
+        return (
+            jsonify({"error": f"No IUCN polygon data found for species: {species}"}),
+            404,
+        )
 
     # Return the filtered features as GeoJSON.
     geojson_str = matching_features.to_json()

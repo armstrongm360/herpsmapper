@@ -3,6 +3,7 @@ import os
 import pandas as pd
 from meteostat import Stations
 
+
 def load_species_from_file(filepath):
     """Load species list from a single text file."""
     try:
@@ -11,6 +12,7 @@ def load_species_from_file(filepath):
     except Exception as e:
         print(f"Error loading {filepath}: {e}")
         return []
+
 
 def load_herp_orders(species_folder="species_files"):
     """
@@ -28,6 +30,7 @@ def load_herp_orders(species_folder="species_files"):
             order_name = os.path.splitext(filename)[0].title()
             herp_orders[order_name] = load_species_from_file(filepath)
     return herp_orders
+
 
 def load_weather_stations():
     """
@@ -51,24 +54,27 @@ def load_weather_stations():
 
         station_list = []
         for _, row in stations_df.iterrows():
-            ms = row['monthly_start']
-            me = row['monthly_end']
+            ms = row["monthly_start"]
+            me = row["monthly_end"]
             monthly_start = ms.strftime("%Y-%m-%d") if pd.notnull(ms) else None
             monthly_end = me.strftime("%Y-%m-%d") if pd.notnull(me) else None
 
-            station_list.append({
-                'id': row['id'],
-                'name': row['name'],
-                'coords': [row['latitude'], row['longitude']],
-                'country': row['country'],
-                'elevation': row.get('elevation', None),
-                'monthly_start': monthly_start,
-                'monthly_end': monthly_end
-            })
+            station_list.append(
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "coords": [row["latitude"], row["longitude"]],
+                    "country": row["country"],
+                    "elevation": row.get("elevation", None),
+                    "monthly_start": monthly_start,
+                    "monthly_end": monthly_end,
+                }
+            )
         return station_list
     except Exception as e:
         print(f"Error fetching weather stations: {e}")
         return []
+
 
 def get_stations_by_bounds(north, west, south, east):
     """
@@ -78,26 +84,31 @@ def get_stations_by_bounds(north, west, south, east):
     Returns a list of station dictionaries (same structure as load_weather_stations()).
     """
     import pandas as pd
+
     try:
-        stations_df = Stations().bounds((north, west), (south, east)).fetch().reset_index()
+        stations_df = (
+            Stations().bounds((north, west), (south, east)).fetch().reset_index()
+        )
         print(f"DEBUG: Number of stations found in bounds: {len(stations_df)}")
 
         station_list = []
         for _, row in stations_df.iterrows():
-            ms = row['monthly_start']
-            me = row['monthly_end']
+            ms = row["monthly_start"]
+            me = row["monthly_end"]
             monthly_start = ms.strftime("%Y-%m-%d") if pd.notnull(ms) else None
             monthly_end = me.strftime("%Y-%m-%d") if pd.notnull(me) else None
 
-            station_list.append({
-                'id': row['id'],
-                'name': row['name'],
-                'coords': [row['latitude'], row['longitude']],
-                'country': row['country'],
-                'elevation': row.get('elevation', None),
-                'monthly_start': monthly_start,
-                'monthly_end': monthly_end
-            })
+            station_list.append(
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "coords": [row["latitude"], row["longitude"]],
+                    "country": row["country"],
+                    "elevation": row.get("elevation", None),
+                    "monthly_start": monthly_start,
+                    "monthly_end": monthly_end,
+                }
+            )
         return station_list
     except Exception as e:
         print(f"Error fetching stations by bounds: {e}")

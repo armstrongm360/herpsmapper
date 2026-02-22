@@ -10,6 +10,7 @@ R2_BASE = "https://pub-24f3dc7f88d741309e78eb1352612cfd.r2.dev/polygon_export/"
 st.set_page_config(page_title="HerpsMapper", layout="wide")
 st.title("HerpsMapper")
 
+
 @st.cache_data(show_spinner=False)
 def load_species_list() -> list[str]:
     """
@@ -39,8 +40,10 @@ def load_species_list() -> list[str]:
     except Exception:
         return []
 
+
 def species_to_filename(species_name: str) -> str:
     return species_name.strip().lower().replace(" ", "_") + ".geojson"
+
 
 def fetch_polygon_geojson(species_name: str):
     url = R2_BASE + species_to_filename(species_name)
@@ -48,6 +51,7 @@ def fetch_polygon_geojson(species_name: str):
     if r.status_code == 200:
         return r.json(), url
     return None, url
+
 
 def fetch_inat_points(species_name: str, limit: int = 500):
     """
@@ -72,6 +76,7 @@ def fetch_inat_points(species_name: str, limit: int = 500):
             if lat is not None and lon is not None:
                 pts.append((lat, lon))
     return pts, data.get("total_results", 0)
+
 
 species_list = load_species_list()
 
@@ -105,7 +110,11 @@ with right:
             folium.GeoJson(
                 geojson,
                 name="IUCN polygon",
-                style_function=lambda _: {"color": "red", "weight": 2, "fillOpacity": 0.4},
+                style_function=lambda _: {
+                    "color": "red",
+                    "weight": 2,
+                    "fillOpacity": 0.4,
+                },
             ).add_to(m)
             folium.LayerControl().add_to(m)
             st.success(f"Polygon loaded from: {url}")
